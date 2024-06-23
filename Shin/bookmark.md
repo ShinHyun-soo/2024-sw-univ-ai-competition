@@ -3,4 +3,4 @@
 [wav2vec2finetuing](https://github.com/khanld/ASR-Wav2vec-Finetune)
 
 
-https://colab.research.google.com/github/huggingface/notebooks/blob/master/examples/audio_classification.ipynb#scrollTo=4aNMErFz-GzX
+[wav2vedfinetuingcolab](https://colab.research.google.com/github/huggingface/notebooks/blob/master/examples/audio_classification.ipynb#scrollTo=4aNMErFz-GzX)
