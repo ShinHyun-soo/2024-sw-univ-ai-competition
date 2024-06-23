@@ -143,3 +143,56 @@ for checkpoint_path in glob('./checkpoints/swinv2-large-resize*.ckpt'):
     preds = torch.cat(preds,dim=0).detach().cpu().numpy().argmax(1)
     fold_preds.append(preds)
 pred_ensemble = list(map(lambda x: np.bincount(x).argmax(),np.stack(fold_preds,axis=1)))
+
+
+
+# 소프트보팅을 위한 예측
+fold_probs = []
+for checkpoint_path in glob('/content/checkpoints/*.ckpt'):
+    model = timm.create_model('eva_large_patch14_196.in22k_ft_in22k_in1k', pretrained=True)
+    lit_model = LitCustomModel.load_from_checkpoint(checkpoint_path, model=model)
+    trainer = L.Trainer( accelerator='auto', precision=32)
+    preds = trainer.predict(lit_model, test_dataloader)
+    probs = F.softmax(torch.cat(preds, dim=0), dim=1).detach().cpu().numpy()  # 각 클래스에 대한 확률값으로 변환
+    fold_probs.append(probs)
+
+# 소프트보팅
+# 각 모델에서 예측한 확률을 평균화하기 위해 모든 예측 확률을 쌓습니다.
+pred_probs = np.stack(fold_probs, axis=0)
+
+# 각 클래스에 대한 평균 예측 확률을 계산합니다.
+mean_probs = np.mean(pred_probs, axis=0)
+
+# 각 샘플에 대해 가장 높은 평균 확률을 가진 클래스를 선택합니다.
+pred_ensemble_soft = np.argmax(mean_probs, axis=1)
+
+submission['label'] = le.inverse_transform(pred_ensemble_soft)
+
+# 소프트보팅을 위한 예측
+fold_probs = []
+for checkpoint_path in glob.glob('/content/*ckpt'):
+    model = timm.create_model('eva_large_patch14_196.in22k_ft_in22k_in1k', pretrained=True)
+    lit_model = LitCustomModel.load_from_checkpoint(checkpoint_path, model=model)
+    trainer = L.Trainer( accelerator='auto', precision=32)
+    preds = trainer.predict(lit_model, test_dataloader)
+    probs = F.softmax(torch.cat(preds, dim=0), dim=1).detach().cpu().numpy()  # 각 클래스에 대한 확률값으로 변환
+    fold_probs.append(probs)
+
+
+
+
+class CustomModel(nn.Module):
+    def __init__(self, model):
+        super(CustomModel, self).__init__()
+        self.model = model
+    def forward(self, x, label=None):
+        x = self.model(x)
+        loss = None
+        if label is not None:
+            loss = nn.CrossEntropyLoss(label_smoothing=0.11)(x, label)
+        probs = nn.LogSoftmax(dim=-1)(x)
+        return probs, loss
+
+
+
+
