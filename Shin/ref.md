@@ -21,4 +21,13 @@ __내가 다 검토했거든? SSL? 을 써라.__
 https://www.mdpi.com/1999-4893/15/5/155
 
 __custom cnn 썼음.__
+
+
+
 https://www.sciencedirect.com/science/article/pii/S1877050923002910/pdf?md5=1c2d5fe4af33853a755190cd07c84008&pid=1-s2.0-S1877050923002910-main.pdf
+
+
+## 연구
+
+
+Pre-trained 계층은 낮은 학습률, 분류 계층에는 높은 학습
