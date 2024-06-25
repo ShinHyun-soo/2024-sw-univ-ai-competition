@@ -31,3 +31,8 @@ https://www.sciencedirect.com/science/article/pii/S1877050923002910/pdf?md5=1c2d
 
 
 Pre-trained 계층은 낮은 학습률, 분류 계층에는 높은 학습
+
+
+## hubert deep fake
+
+https://huggingface.co/abhishtagatya/hubert-base-960h-itw-deepfake
