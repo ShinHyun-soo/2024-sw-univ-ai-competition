@@ -12,3 +12,6 @@ df[column_name] = additional_string + df[column_name].str.replace('.', '')
 
 # 수정된 DataFrame을 새로운 CSV 파일로 저장
 df.to_csv('your_modified_file2.csv', index=False)
+
+
+# 이거 하면 .ogg가 ogg 될텐데 엑셀에서 컨트롤 에프 하고 ogg 찾은다음에 .ogg 모두 바꾸기 하면 됩니다
