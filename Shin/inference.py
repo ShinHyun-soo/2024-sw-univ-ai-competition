@@ -261,9 +261,9 @@ if __name__ == '__main__':
     #train_df['label'] = train_df['label'].apply(lambda x: [1, 0] if x == 0 else [0, 1])
     test_df['label'] = [[0, 0]] * len(test_df)
 
-    # train_audios, valid_indices = getAudios(train_df)
-    # train_df = train_df.iloc[valid_indices].reset_index(drop=True)
-    # train_labels = np.array(train_df['label'].tolist())
+    #train_audios, valid_indices = getAudios(train_df)
+    #train_df = train_df.iloc[valid_indices].reset_index(drop=True)
+    train_labels = np.array(train_df['label'].tolist())
 
     #K-fold cross-validation
     # skf = StratifiedKFold(n_splits=N_FOLD, shuffle=True, random_state=SEED)
@@ -282,7 +282,7 @@ if __name__ == '__main__':
     #         monitor='val_loss',
     #         dirpath=MODEL_DIR,
     #         filename=f'fold_{fold_idx}' + '_{epoch:02d}-{val_loss:.4f}-{train_loss:.4f}',
-    #         save_top_k=3,
+    #         save_top_k=1,
     #         mode='max'
     #     )
     #
@@ -329,8 +329,8 @@ if __name__ == '__main__':
 
     # Average predictions and save submission
     test_preds = np.vstack(test_preds)
-    avg_test_preds = np.mean(test_preds, axis=0)
+    # avg_test_preds = np.mean(test_preds, axis=0)
     submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
-    submission_df['fake'] = avg_test_preds[:, 0]
-    submission_df['real'] = avg_test_preds[:, 1]
+    submission_df['fake'] = test_preds[:, 0]
+    submission_df['real'] = test_preds[:, 1]
     submission_df.to_csv(os.path.join(SUBMISSION_DIR, '20_fold212.csv'), index=False)
