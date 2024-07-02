@@ -36,3 +36,6 @@ Pre-trained 계층은 낮은 학습률, 분류 계층에는 높은 학습
 ## hubert deep fake
 
 https://huggingface.co/abhishtagatya/hubert-base-960h-itw-deepfake
+
+
+https://drive.google.com/file/d/16UzH1cf0JL4pztDF7FCSKeYmui2R2kVn/view?usp=sharing
