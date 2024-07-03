@@ -17,7 +17,7 @@ import bitsandbytes as bnb
 
 # Functions for calculating metrics
 import numpy as np
-from sklearn.metrics import roc_auc_score, mean_squared_error
+from sklearn.metrics import roc_auc_score, mean_squared_error, average_precision_score
 from sklearn.calibration import calibration_curve
 
 # Constants
@@ -28,7 +28,7 @@ MODEL_DIR = './model'
 SAMPLING_RATE = 16000
 SEED = 42
 N_FOLD = 20
-BATCH_SIZE = 2
+BATCH_SIZE = 4
 NUM_LABELS = 2
 AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-itw-deepfake'
 
@@ -127,7 +127,7 @@ def auc_brier_ece(labels, preds):
         y_prob = preds[:, i]
 
         # AUC
-        auc = roc_auc_score(y_true, y_prob)
+        auc = average_precision_score(y_true, y_prob)
         auc_scores.append(auc)
 
         # Brier Score
@@ -171,7 +171,7 @@ class MyLitModel(pl.LightningModule):
         labels = batch['label']
 
         logits = self(audio_values, audio_attn_mask)
-        loss = nn.BCEWithLogitsLoss()(logits, labels)
+        loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
 
         preds = torch.sigmoid(logits).detach().cpu().numpy()
         labels = labels.detach().cpu().numpy()
@@ -271,14 +271,14 @@ if __name__ == '__main__':
     audio_feature_extractor.return_attention_mask = True
 
     # 데이터 로드
-    train_df = pd.read_csv('./train.csv')
-    test_df = pd.read_csv('./test.csv')
+    train_df = pd.read_csv('./mixed_audio_results.csv')
+    #test_df = pd.read_csv('./test.csv')
     train_df['path'] = train_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
-    test_df['path'] = test_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
+    #test_df['path'] = test_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
 
     # 라벨 값을 가져옴
-    train_labels = train_df[['class0', 'class1']].values
-    test_df['label'] = [[0, 0]] * len(test_df)  # test data에는 라벨이 없음
+    train_labels = train_df[['fake', 'real']].values
+    #test_df['label'] = [[0, 0]] * len(test_df)  # test data에는 라벨이 없음
 
     train_audios, valid_indices = getAudios(train_df)
     train_df = train_df.iloc[valid_indices].reset_index(drop=True)
@@ -327,33 +327,32 @@ if __name__ == '__main__':
         del my_lit_model
 
     # 테스트 셋 예측
-    test_audios, _ = getAudios(test_df)
-    test_ds = MyDataset(test_audios, audio_feature_extractor)
-    test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
-    pretrained_models = list(map(lambda x: os.path.join(MODEL_DIR, x), os.listdir(MODEL_DIR)))
-
-    test_preds = []
-    trainer = pl.Trainer(
-        accelerator='cuda',
-        precision=16,
-    )
-
-    for pretrained_model_path in pretrained_models:
-        pretrained_model = MyLitModel.load_from_checkpoint(
-            pretrained_model_path,
-            audio_model_name=AUDIO_MODEL_NAME,
-            num_labels=NUM_LABELS,
-        )
-        test_pred = trainer.predict(pretrained_model, test_dl)
-        test_pred = torch.cat(test_pred).detach().cpu().numpy()
-        test_preds.append(test_pred)
-        del pretrained_model
-
-    # preds 를 vstack 으로 나열?
-    test_preds = np.vstack(test_preds)
-    # 0열 값을 fake, 1열 값을 real
-    submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
-    submission_df['fake'] = test_preds[:, 0]
-    submission_df['real'] = test_preds[:, 1]
-    submission_df.to_csv(os.path.join(SUBMISSION_DIR, '20_fold212.csv'), index=False)
-
+    # test_audios, _ = getAudios(test_df)
+    # test_ds = MyDataset(test_audios, audio_feature_extractor)
+    # test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
+    # pretrained_models = list(map(lambda x: os.path.join(MODEL_DIR, x), os.listdir(MODEL_DIR)))
+    #
+    # test_preds = []
+    # trainer = pl.Trainer(
+    #     accelerator='cuda',
+    #     precision=16,
+    # )
+    #
+    # for pretrained_model_path in pretrained_models:
+    #     pretrained_model = MyLitModel.load_from_checkpoint(
+    #         pretrained_model_path,
+    #         audio_model_name=AUDIO_MODEL_NAME,
+    #         num_labels=NUM_LABELS,
+    #     )
+    #     test_pred = trainer.predict(pretrained_model, test_dl)
+    #     test_pred = torch.cat(test_pred).detach().cpu().numpy()
+    #     test_preds.append(test_pred)
+    #     del pretrained_model
+    #
+    # # preds 를 vstack 으로 나열?
+    # test_preds = np.vstack(test_preds)
+    # # 0열 값을 fake, 1열 값을 real
+    # submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
+    # submission_df['fake'] = test_preds[:, 0]
+    # submission_df['real'] = test_preds[:, 1]
+    # submission_df.to_csv(os.path.join(SUBMISSION_DIR, '20_fold212.csv'), index=False)
