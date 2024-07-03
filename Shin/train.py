@@ -254,7 +254,7 @@ if __name__ == '__main__':
             precision=16,
             val_check_interval=0.2,
             callbacks=[checkpoint_acc_callback],
-            accumulate_grad_batches=2 # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임.
+            accumulate_grad_batches=2 # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임. (vram 은 batch_size 기준으로 소모함.)
         )
 
         trainer.fit(my_lit_model, train_fold_dl, val_fold_dl)
