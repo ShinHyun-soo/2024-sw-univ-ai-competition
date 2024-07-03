@@ -159,7 +159,7 @@ class MyLitModel(pl.LightningModule):
         layer_decay = self.lr_decay
         weight_decay = 0.01
         llrd_params = self._get_llrd_params(lr=lr, layer_decay=layer_decay, weight_decay=weight_decay)
-        optimizer = bnb.optim.Adam8bit(llrd_params)   # optimizer 을 8bit 로 하여 계산 속도 및 vram 사용량 감축
+        optimizer = bnb.optim.Adam8bit(llrd_params)   # optimizer 을 8bit 로 하여 계산 속도 향상 및 vram 사용량 감축
         return optimizer
 
     def _get_llrd_params(self, lr, layer_decay, weight_decay):
