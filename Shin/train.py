@@ -140,7 +140,7 @@ class MyLitModel(pl.LightningModule):
         logits = self(audio_values, audio_attn_mask)
         loss = nn.BCEWithLogitsLoss()(logits, labels)
 
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
 
         return loss
