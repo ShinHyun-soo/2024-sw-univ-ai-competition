@@ -19,16 +19,18 @@ import bitsandbytes as bnb
 
 
 # Constants
-DATA_DIR = './data'  # Adjust this path as necessary
+DATA_DIR = ''  # Adjust this path as necessary
 PREPROC_DIR = './preproc'
 SUBMISSION_DIR = './submission'
 MODEL_DIR = './model'
 SAMPLING_RATE = 16000
 SEED = 42
-N_FOLD = 2
-BATCH_SIZE = 1
+N_FOLD = 5
+BATCH_SIZE = 4
 NUM_LABELS = 2
-AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-itw-deepfake'
+#AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-itw-deepfake'
+#AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-asv19-deepfake'
+AUDIO_MODEL_NAME = 'facebook/hubert-base-ls960'
 
 
 # Utility functions
@@ -126,7 +128,7 @@ class MyLitModel(pl.LightningModule):
         labels = batch['label']
 
         logits = self(audio_values, audio_attn_mask)
-        loss = nn.BCEWithLogitsLoss()(logits, labels)
+        loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
@@ -138,7 +140,7 @@ class MyLitModel(pl.LightningModule):
         labels = batch['label']
 
         logits = self(audio_values, audio_attn_mask)
-        loss = nn.BCEWithLogitsLoss()(logits, labels)
+        loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
 
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
@@ -159,7 +161,7 @@ class MyLitModel(pl.LightningModule):
         layer_decay = self.lr_decay
         weight_decay = 0.01
         llrd_params = self._get_llrd_params(lr=lr, layer_decay=layer_decay, weight_decay=weight_decay)
-        optimizer = bnb.optim.Adam8bit(llrd_params)   # optimizer 을 8bit 로 하여 계산 속도 향상 및 vram 사용량 감축
+        optimizer = bnb.optim.Adam8bit(llrd_params)
         return optimizer
 
     def _get_llrd_params(self, lr, layer_decay, weight_decay):
@@ -238,7 +240,7 @@ if __name__ == '__main__':
             monitor='val_loss',
             dirpath=MODEL_DIR,
             filename=f'fold_{fold_idx}' + '_{epoch:02d}-{val_loss:.4f}-{train_loss:.4f}',
-            save_top_k=3,
+            save_top_k=300,
             mode='max'
         )
 
@@ -250,11 +252,11 @@ if __name__ == '__main__':
 
         trainer = pl.Trainer(
             accelerator='cuda',
-            max_epochs=30,
-            precision=16,
-            val_check_interval=0.2,
+            max_epochs=1,
+            precision='16-mixed',
+            val_check_interval=0.1,
             callbacks=[checkpoint_acc_callback],
-            accumulate_grad_batches=2 # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임. (vram 은 batch_size 기준으로 소모함.)
+            accumulate_grad_batches=2 # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임.
         )
 
         trainer.fit(my_lit_model, train_fold_dl, val_fold_dl)
@@ -262,32 +264,32 @@ if __name__ == '__main__':
         del my_lit_model
 
     # 테스트 셋 예측
-    test_audios, _ = getAudios(test_df)
-    test_ds = MyDataset(test_audios, audio_feature_extractor)
-    test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
-    pretrained_models = list(map(lambda x: os.path.join(MODEL_DIR, x), os.listdir(MODEL_DIR)))
-
-    test_preds = []
-    trainer = pl.Trainer(
-        accelerator='cuda',
-        precision=16,
-    )
-
-    for pretrained_model_path in pretrained_models:
-        pretrained_model = MyLitModel.load_from_checkpoint(
-            pretrained_model_path,
-            audio_model_name=AUDIO_MODEL_NAME,
-            num_labels=NUM_LABELS,
-        )
-        test_pred = trainer.predict(pretrained_model, test_dl)
-        test_pred = torch.cat(test_pred).detach().cpu().numpy()
-        test_preds.append(test_pred)
-        del pretrained_model
-
-    # preds 를 vstack 으로 나열?
-    test_preds = np.vstack(test_preds)
-    # 0열 값을 fake, 1열 값을 real
-    submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
-    submission_df['fake'] = test_preds[:, 0]
-    submission_df['real'] = test_preds[:, 1]
-    submission_df.to_csv(os.path.join(SUBMISSION_DIR, '20_fold212.csv'), index=False)
+    #test_audios, _ = getAudios(test_df)
+    #test_ds = MyDataset(test_audios, audio_feature_extractor)
+    #test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
+    # pretrained_models = list(map(lambda x: os.path.join(MODEL_DIR, x), os.listdir(MODEL_DIR)))
+    #
+    # test_preds = []
+    # trainer = pl.Trainer(
+    #     accelerator='cuda',
+    #     precision='16-mixed',
+    # )
+    #
+    # for pretrained_model_path in pretrained_models:
+    #     pretrained_model = MyLitModel.load_from_checkpoint(
+    #         pretrained_model_path,
+    #         audio_model_name=AUDIO_MODEL_NAME,
+    #         num_labels=NUM_LABELS,
+    #     )
+    #     test_pred = trainer.predict(pretrained_model, test_dl)
+    #     test_pred = torch.cat(test_pred).detach().cpu().numpy()
+    #     test_preds.append(test_pred)
+    #     del pretrained_model
+    #
+    # # preds 를 vstack 으로 행 변환 reshape 느낌
+    # test_preds = np.vstack(test_preds)
+    # # 0열 값을 fake, 1열 값을 real
+    # submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
+    # submission_df['fake'] = test_preds[:, 0]
+    # submission_df['real'] = test_preds[:, 1]
+    # submission_df.to_csv(os.path.join(SUBMISSION_DIR, 'fold_20.csv'), index=False)
