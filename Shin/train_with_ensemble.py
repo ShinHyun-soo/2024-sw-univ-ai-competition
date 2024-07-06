@@ -1,3 +1,5 @@
+# vram 을 많이 잡아 먹어서 배치사이즈 조정 필요함.
+
 import os
 import numpy as np
 import pandas as pd
