@@ -5,7 +5,8 @@ wav2vec deepfake      0.37xx
 단순히 평균냄.         0.32xx    
 
 각자 하나씩 붙잡고 최대한 단일 모델 성능을 높인다음에 stacking 앙상블이 뭔진 모르겟지만 해봅시다.
- 
+
+ https://dacon.io/competitions/official/236105/codeshare/8435    
 HuggingFace에서 다음의 모델을 fine-tuning하여 stacking 앙상블 하였습니다    
 facebook/wav2vec2-base    
 MIT/ast-finetuned-audioset-10-10-0.4593    
