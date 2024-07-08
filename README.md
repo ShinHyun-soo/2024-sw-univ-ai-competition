@@ -1,8 +1,8 @@
 요 전략대로 한번 해봅시다.
 
-현재 hubert-deepfake  0.3577
-wav2vec deepfake      0.37xx
-단순히 평균냄.         0.32xx
+현재 hubert-deepfake  0.3577    
+wav2vec deepfake      0.37xx    
+단순히 평균냄.         0.32xx    
 
 각자 하나씩 붙잡고 최대한 단일 모델 성능을 높인다음에 stacking 앙상블이 뭔진 모르겟지만 해봅시다.
  
