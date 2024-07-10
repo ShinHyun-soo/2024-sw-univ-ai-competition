@@ -12,7 +12,7 @@
 > __따라서, wavlm 이나 wav2vec deepfake 모델을 라벨 바꾸기 잡기술을 이용해서, fake 기준 확률이 조금이라도 높게 학습을 해서 나온 submission 을 합치는게 좋다고 보임.__      
 
 ### 할 것
-> github 코드 참고해서 wav2vec 이나 wavlm 을 fake 기준으로 학습을 한 ckpt 가지고 submission 을 생성해서 카톡방에 업로드.    
+> github 코드 참고해서 wav2vec 이나 wavlm 을 deep-fake 로 finetuning 된 모델을 fake 기준으로 학습을 한 ckpt 가지고 submission 을 생성해서 카톡방에 업로드.    
 
 ### 팁
 > fold 2 에 val_interval = 1, epoch 는 0 ( 1번만 학습) 하는게 뭔가 좋은것 같음. 이유는 모름.       
