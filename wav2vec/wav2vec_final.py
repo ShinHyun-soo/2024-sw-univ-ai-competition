@@ -85,7 +85,8 @@ def collate_fn(samples):
         batch_labels.append(sample['label'])
         batch_audio_values.append(torch.tensor(sample['audio_values']))
         batch_audio_attn_masks.append(torch.tensor(sample['audio_attn_mask']))
-
+        
+    batch_labels = np.array(batch_labels) # 이래야 빠르다고 토치가 말함.
     batch_labels = torch.tensor(batch_labels)
     batch_audio_values = pad_sequence(batch_audio_values, batch_first=True)
     batch_audio_attn_masks = pad_sequence(batch_audio_attn_masks, batch_first=True)
