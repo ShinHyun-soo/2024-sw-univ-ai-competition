@@ -15,7 +15,7 @@
 > github 코드 참고해서 wav2vec 이나 wavlm 을 deep-fake 로 finetuning 된 모델을(깃헙 코드 보면 잇음.) fake 기준으로 학습을 한 ckpt 가지고 submission 을 생성해서 카톡방에 업로드.    
 
 ### 팁
-> fold 2 에 val_interval = 1, epoch 는 0 ( 1번만 학습) 하는게 뭔가 좋은것 같음. 이유는 모름.       
+> fold 2 에 val_interval = 1, epoch 는 0 ( 1번만 학습) 하는게 뭔가 좋은것 같음. 이유는 모름. (이게 학습 시간 대비 효율이 좋음.)            
 
 
 
