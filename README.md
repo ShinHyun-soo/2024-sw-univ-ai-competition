@@ -5,7 +5,7 @@
 > 합쳐보니, 기존의 모델은 real 확률이 크게 나옴.      
 > 근데? fake 기준으로 학습을 시키면? 그나마 fake 가 크게 나옴 (거의 real 이 큼)      
 > 따라서 기존 모델은 real 확률이 큰게 대부분이니까 이걸 평균을 내서 깎아야함 (fake 확률이 크게 fake 기준으로 학습을 해서)    
-> 근데? 합칠 때 모델 자체가 다른 것(hubert-deepfake, hubert-large 이건 같은 모델, hubert-large, wav2vec-deepfake 이건 다른 모델, 앞에 뭐라고 써있는지 확인하는게 중요., 저 아래 목록은 그냥 대충 찾아놓은거임. 저대로 학습하라는게 아님.) 끼리 합치는게 좋았음.       
+> 근데? 합칠 때 모델 자체가 다른 것(hubert-deepfake, hubert-large 이건 같은 모델, hubert-large, wav2vec-deepfake 이건 다른 모델, 앞에 뭐라고 써있는지 확인하는게 중요., 저 아래 목록은 그냥 대충 찾아놓은거임. 저대로 학습하라는게 아님. 저 모델들 기반에 deepfake 로 fine-tuning 된 거를 찾아보라는 의미, 근데 찾아보니까 wavlm, wav2vec 만 잇엇음.) 끼리 합치는게 좋았음.       
 
 ### 결론
 > 현재, hubert 기반의 real 기준으로 학습되어, real 확률이 높은게 많음. (test 자체가 real 이 많은 거일 수도 있음. 근데 real 을 낮추고 fake 를 올리는게 성능이 향상됨. 잘 모르겟음.)        
