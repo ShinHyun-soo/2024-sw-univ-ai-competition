@@ -1,3 +1,33 @@
+## [전략 2024-07-10 14:55 Ver.]
+
+### 배경 지식
+> Submission 을 합치니까 결과가 좋았음. 아마 어딘가로 회귀하는 것 같음.             
+> 합쳐보니, 기존의 모델은 real 확률이 크게 나옴.    
+> 근데? fake 기준으로 학습을 시키면? 그나마 fake 가 크게 나옴 (거의 real 이 큼)
+> 따라서 기존 모델은 real 확률이 큰게 대부분이니까 이걸 평균을 내서 깎아야함 (fake 확률이 크게 fake 기준으로 학습을 해서)
+> 근데? 합칠 때 모델 자체가 다른 것(hubert-deepfake, hubert-large 이건 같은 모델, hubert-large, wav2vec-deepfake 이건 다른 모델, 앞에 뭐라고 써있는지 확인하는게 중요.) 끼리 합치는게 좋았음.    
+
+### 결론
+> 현재, hubert 기반의 real 기준으로 학습되어, real 확률이 높은게 많음. (test 자체가 real 이 많은 거일 수도 있음. 근데 real 을 낮추고 fake 를 올리는게 성능이 향상됨. 잘 모르겟음.)
+> __따라서, wavlm 이나 wav2vec deepfake 모델을 라벨 바꾸기 잡기술을 이용해서, fake 기준 확률이 조금이라도 높게 학습을 해서 나온 submission 을 합치는게 좋다고 보임.__
+
+### 할 것
+> github 코드 참고해서 wav2vec 이나 wavlm 을 fake 기준으로 학습을 한 ckpt 가지고 submission 을 생성해서 카톡방에 업로드.
+
+### 팁
+> fold 2 에 val_interval = 1, epoch 는 0 ( 1번만 학습) 하는게 뭔가 좋은것 같음. 이유는 모름.    
+
+
+
+
+
+
+
+
+
+
+
+
 요 전략대로 한번 해봅시다.
 
 현재 hubert-deepfake  0.3577    
