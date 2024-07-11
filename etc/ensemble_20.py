@@ -1,6 +1,6 @@
 import pandas as pd
 
-# Load the CSV files 본인 파일명에 맞게 수정
+# 본인 파일명에 맞게 수정
 file_1_path = './submission/hubert_bf16_fold_1.csv'
 file_2_path = './submission/hubert_bf16_fold_2.csv'
 file_3_path = './submission/hubert_bf16_fold_3.csv'
