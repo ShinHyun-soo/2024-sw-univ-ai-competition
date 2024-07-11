@@ -69,6 +69,7 @@ merged_df = pd.merge(merged_df, df20, on='id', suffixes=('_19', '_20'))
 print("merged_df columns:", merged_df.columns)
 
 # Calculate the average of the 'fake' and 'real' columns from all four dataframes
+# 안될수도 있는데 merged_df columns 보고 fake_20 이 fake 면 fake 로 바꾸면됨.
 merged_df['fake'] = (merged_df['fake_1'] + merged_df['fake_2'] + merged_df['fake_3'] + merged_df['fake_4'] + merged_df['fake_5'] + merged_df['fake_6'] + merged_df['fake_7'] + merged_df['fake_8'] + merged_df['fake_9'] + merged_df['fake_10'] + merged_df['fake_11'] + merged_df['fake_12'] + merged_df['fake_13'] + merged_df['fake_14'] + merged_df['fake_15'] + merged_df['fake_16'] + merged_df['fake_17'] + merged_df['fake_18'] + merged_df['fake_19'] + merged_df['fake_20']) / 20
 merged_df['real'] = (merged_df['real_1'] + merged_df['real_2'] + merged_df['real_3'] + merged_df['real_4'] + merged_df['real_5'] + merged_df['real_6'] + merged_df['real_7'] + merged_df['real_8'] + merged_df['real_9'] + merged_df['real_10'] + merged_df['real_11'] + merged_df['real_12'] + merged_df['real_13'] + merged_df['real_14'] + merged_df['real_15'] + merged_df['real_16'] + merged_df['real_17'] + merged_df['real_18'] + merged_df['real_19'] + merged_df['real_20']) / 20
 
