@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 # Load the CSV file
 csv_path = './train.csv'
-data = pd.read_csv(csv_path, skiprows=range(2001, 3001), nrows=1000)
+data = pd.read_csv(csv_path, skiprows=range(1, 7501), nrows=7500)
 
 # Create output directory
 output_dir = './audio_final'
