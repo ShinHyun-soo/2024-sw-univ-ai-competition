@@ -70,6 +70,32 @@ def collate_fn(samples):
 
     return batch
 
+# Dataset class
+class MyDataset(Dataset):
+    def __init__(self, audio, audio_feature_extractor, labels=None):
+        if labels is None:
+            labels = [[0] * NUM_LABELS for _ in range(len(audio))]
+        self.labels = np.array(labels).astype(np.float32)
+        self.audio = audio
+        self.audio_feature_extractor = audio_feature_extractor
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        label = self.labels[idx]
+        audio = self.audio[idx]
+        audio_feature = self.audio_feature_extractor(raw_speech=audio, return_tensors='np', sampling_rate=SAMPLING_RATE)
+        audio_values, audio_attn_mask = audio_feature['input_values'][0], audio_feature['attention_mask'][0]
+
+        item = {
+            'label': label,
+            'audio_values': audio_values,
+            'audio_attn_mask': audio_attn_mask,
+        }
+
+        return item
+
 
 class MyLitModel(pl.LightningModule):
     def __init__(self, audio_model_name, num_labels, n_layers=1, projector=True, classifier=True, dropout=0.07,
