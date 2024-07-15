@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import pandas as pd
 import librosa
 import torch
@@ -15,9 +16,7 @@ from transformers import HubertForSequenceClassification, AutoFeatureExtractor, 
 
 import bitsandbytes as bnb
 
-# Functions for calculating metrics
-import numpy as np
-from sklearn.metrics import roc_auc_score, mean_squared_error, average_precision_score
+from sklearn.metrics import roc_auc_score, mean_squared_error
 from sklearn.calibration import calibration_curve
 
 # Constants
@@ -91,6 +90,7 @@ def collate_fn(samples):
         batch_audio_values.append(torch.tensor(sample['audio_values']))
         batch_audio_attn_masks.append(torch.tensor(sample['audio_attn_mask']))
 
+    batch_labels = np.array(batch_labels)
     batch_labels = torch.tensor(batch_labels)
     batch_audio_values = pad_sequence(batch_audio_values, batch_first=True)
     batch_audio_attn_masks = pad_sequence(batch_audio_attn_masks, batch_first=True)
@@ -102,7 +102,6 @@ def collate_fn(samples):
     }
 
     return batch
-
 
 
 def expected_calibration_error(y_true, y_prob, n_bins=10):
@@ -127,7 +126,10 @@ def auc_brier_ece(labels, preds):
         y_prob = preds[:, i]
 
         # AUC
-        auc = average_precision_score(y_true, y_prob)
+        try:
+            auc = roc_auc_score(y_true, y_prob)
+        except ValueError:
+            auc = 0.0
         auc_scores.append(auc)
 
         # Brier Score
@@ -151,7 +153,7 @@ class MyLitModel(pl.LightningModule):
     def __init__(self, audio_model_name, num_labels, n_layers=1, projector=True, classifier=True, dropout=0.07,
                  lr_decay=1):
         super(MyLitModel, self).__init__()
-        self.config = AutoConfig.from_pretrained(audio_model_name)
+        self.config = AutoConfig.from_pretrained(audio_model_name, num_labels=num_labels)
         self.config.activation_dropout = dropout
         self.config.attention_dropout = dropout
         self.config.final_dropout = dropout
@@ -174,16 +176,17 @@ class MyLitModel(pl.LightningModule):
         loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
 
         preds = torch.sigmoid(logits).detach().cpu().numpy()
-        labels = labels.detach().cpu().numpy()
+        true_labels = labels.detach().cpu().numpy()
 
-        # 새롭게 추가된 평가지표들
-        mean_auc, mean_brier, mean_ece, combined_score = auc_brier_ece(labels, preds)
+        try:
+            # Calculate combined score
+            _, _, _, train_combined_score = auc_brier_ece(true_labels, preds)
+        except ValueError:
+            train_combined_score = 0.0
 
+        # Log combined score
+        self.log('train_combined_score', train_combined_score, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('train_auc', mean_auc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('train_brier', mean_brier, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('train_ece', mean_ece, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('train_combined_score', combined_score, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
 
@@ -193,19 +196,20 @@ class MyLitModel(pl.LightningModule):
         labels = batch['label']
 
         logits = self(audio_values, audio_attn_mask)
-        loss = nn.BCEWithLogitsLoss()(logits, labels)
+        loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
 
         preds = torch.sigmoid(logits).detach().cpu().numpy()
-        labels = labels.detach().cpu().numpy()
+        true_labels = labels.detach().cpu().numpy()
 
-        # 새롭게 추가된 평가지표들
-        mean_auc, mean_brier, mean_ece, combined_score = auc_brier_ece(labels, preds)
+        try:
+            # Calculate combined score
+            _, _, _, val_combined_score = auc_brier_ece(true_labels, preds)
+        except ValueError:
+            val_combined_score = 0.0
 
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('val_auc', mean_auc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('val_brier', mean_brier, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('val_ece', mean_ece, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('val_combined_score', combined_score, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # Log combined score
+        self.log('val_combined_score', val_combined_score, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
 
@@ -223,7 +227,7 @@ class MyLitModel(pl.LightningModule):
         layer_decay = self.lr_decay
         weight_decay = 0.01
         llrd_params = self._get_llrd_params(lr=lr, layer_decay=layer_decay, weight_decay=weight_decay)
-        optimizer = bnb.optim.Adam8bit(llrd_params)  # optimizer 을 8bit 로 하여 계산 속도 향상 및 vram 사용량 감축
+        optimizer = bnb.optim.Adam8bit(llrd_params)
         return optimizer
 
     def _get_llrd_params(self, lr, layer_decay, weight_decay):
@@ -262,6 +266,7 @@ class MyLitModel(pl.LightningModule):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+
 # Main script
 if __name__ == '__main__':
     seed_everything(SEED)
@@ -271,18 +276,15 @@ if __name__ == '__main__':
     audio_feature_extractor.return_attention_mask = True
 
     # 데이터 로드
-    train_df = pd.read_csv('./mixed_audio_results.csv')
-    #test_df = pd.read_csv('./test.csv')
+    train_df = pd.read_csv('./train.csv')
     train_df['path'] = train_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
-    #test_df['path'] = test_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
 
-    # 라벨 값을 가져옴
-    train_labels = train_df[['fake', 'real']].values
-    #test_df['label'] = [[0, 0]] * len(test_df)  # test data에는 라벨이 없음
+    # 싱글 라벨을 멀티 라벨로 변환
+    train_df['label'] = train_df['label'].apply(lambda x: [1, 0] if x == 0 else [0, 1])
 
     train_audios, valid_indices = getAudios(train_df)
     train_df = train_df.iloc[valid_indices].reset_index(drop=True)
-    train_labels = train_labels[valid_indices]
+    train_labels = np.array(train_df['label'].tolist())
 
     # K 폴드
     skf = StratifiedKFold(n_splits=N_FOLD, shuffle=True, random_state=SEED)
@@ -297,13 +299,12 @@ if __name__ == '__main__':
         train_fold_dl = DataLoader(train_fold_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
         val_fold_dl = DataLoader(val_fold_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
 
-        # Change the monitor metric to 'val_combined_score' and save the top models with the lowest scores
         checkpoint_acc_callback = ModelCheckpoint(
-            monitor='val_combined_score',  # Change to monitor combined_score
+            monitor='val_combined_score',
             dirpath=MODEL_DIR,
             filename=f'fold_{fold_idx}' + '_{epoch:02d}-{val_combined_score:.4f}',
-            save_top_k=30,
-            mode='min'  # Change to 'min' because lower combined_score is better
+            save_top_k=3000,
+            mode='min'
         )
 
         my_lit_model = MyLitModel(
@@ -314,12 +315,11 @@ if __name__ == '__main__':
 
         trainer = pl.Trainer(
             accelerator='cuda',
-            max_epochs=1,
+            max_epochs=30,
             precision='16-mixed',
             val_check_interval=0.1,
             callbacks=[checkpoint_acc_callback],
-            accumulate_grad_batches=2
-            # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임. (vram 은 batch_size 기준으로 소모함.)
+            accumulate_grad_batches=2  # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임.
         )
 
         trainer.fit(my_lit_model, train_fold_dl, val_fold_dl)
@@ -335,7 +335,7 @@ if __name__ == '__main__':
     # test_preds = []
     # trainer = pl.Trainer(
     #     accelerator='cuda',
-    #     precision=16,
+    #     precision='16-mixed',
     # )
     #
     # for pretrained_model_path in pretrained_models:
@@ -349,10 +349,10 @@ if __name__ == '__main__':
     #     test_preds.append(test_pred)
     #     del pretrained_model
     #
-    # # preds 를 vstack 으로 나열?
+    # # preds 를 vstack 으로 행 변환 reshape 느낌
     # test_preds = np.vstack(test_preds)
     # # 0열 값을 fake, 1열 값을 real
     # submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
     # submission_df['fake'] = test_preds[:, 0]
     # submission_df['real'] = test_preds[:, 1]
-    # submission_df.to_csv(os.path.join(SUBMISSION_DIR, '20_fold212.csv'), index=False)
+    # submission_df.to_csv(os.path.join(SUBMISSION_DIR, 'fold_5_multi_label.csv'), index=False)
