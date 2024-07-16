@@ -9,10 +9,15 @@ import pytorch_lightning as pl
 from tqdm.auto import tqdm
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import StratifiedKFold
 from pytorch_lightning import seed_everything
+from pytorch_lightning.callbacks import ModelCheckpoint
 from transformers import HubertForSequenceClassification, AutoFeatureExtractor, AutoConfig
-from torch.optim import AdamW
+
 import bitsandbytes as bnb
+
+from sklearn.metrics import roc_auc_score, mean_squared_error
+from sklearn.calibration import calibration_curve
 
 # Constants
 DATA_DIR = ''  # Adjust this path as necessary
@@ -22,9 +27,15 @@ MODEL_DIR = './model'
 SAMPLING_RATE = 16000
 SEED = 42
 N_FOLD = 10
-BATCH_SIZE = 2
+BATCH_SIZE = 4
 NUM_LABELS = 2
-AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-asv19-deepfake'
+AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-itw-deepfake'
+
+
+# Utility functions
+def accuracy(preds, labels):
+    return (preds == labels).float().mean()
+
 
 def getAudios(df):
     audios = []
@@ -40,29 +51,6 @@ def getAudios(df):
             print(f"Error loading {row['path']}: {e}. Skipping.")
     return audios, valid_indices
 
-
-def collate_fn(samples):
-    batch_labels = []
-    batch_audio_values = []
-    batch_audio_attn_masks = []
-
-    for sample in samples:
-        batch_labels.append(sample['label'])
-        batch_audio_values.append(torch.tensor(sample['audio_values']))
-        batch_audio_attn_masks.append(torch.tensor(sample['audio_attn_mask']))
-
-    batch_labels = np.array(batch_labels)
-    batch_labels = torch.tensor(batch_labels)
-    batch_audio_values = pad_sequence(batch_audio_values, batch_first=True)
-    batch_audio_attn_masks = pad_sequence(batch_audio_attn_masks, batch_first=True)
-
-    batch = {
-        'label': batch_labels,
-        'audio_values': batch_audio_values,
-        'audio_attn_mask': batch_audio_attn_masks,
-    }
-
-    return batch
 
 # Dataset class
 class MyDataset(Dataset):
@@ -90,6 +78,77 @@ class MyDataset(Dataset):
 
         return item
 
+
+# Collate function
+def collate_fn(samples):
+    batch_labels = []
+    batch_audio_values = []
+    batch_audio_attn_masks = []
+
+    for sample in samples:
+        batch_labels.append(sample['label'])
+        batch_audio_values.append(torch.tensor(sample['audio_values']))
+        batch_audio_attn_masks.append(torch.tensor(sample['audio_attn_mask']))
+
+    batch_labels = np.array(batch_labels)
+    batch_labels = torch.tensor(batch_labels)
+    batch_audio_values = pad_sequence(batch_audio_values, batch_first=True)
+    batch_audio_attn_masks = pad_sequence(batch_audio_attn_masks, batch_first=True)
+
+    batch = {
+        'label': batch_labels,
+        'audio_values': batch_audio_values,
+        'audio_attn_mask': batch_audio_attn_masks,
+    }
+
+    return batch
+
+
+def expected_calibration_error(y_true, y_prob, n_bins=10):
+    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=n_bins, strategy='uniform')
+    bin_totals = np.histogram(y_prob, bins=np.linspace(0, 1, n_bins + 1), density=False)[0]
+    non_empty_bins = bin_totals > 0
+    bin_weights = bin_totals / len(y_prob)
+    bin_weights = bin_weights[non_empty_bins]
+    prob_true = prob_true[:len(bin_weights)]
+    prob_pred = prob_pred[:len(bin_weights)]
+    ece = np.sum(bin_weights * np.abs(prob_true - prob_pred))
+    return ece
+
+
+def auc_brier_ece(labels, preds):
+    auc_scores = []
+    brier_scores = []
+    ece_scores = []
+
+    for i in range(labels.shape[1]):
+        y_true = labels[:, i]
+        y_prob = preds[:, i]
+
+        # AUC
+        try:
+            auc = roc_auc_score(y_true, y_prob)
+        except ValueError:
+            auc = 0.0
+        auc_scores.append(auc)
+
+        # Brier Score
+        brier = mean_squared_error(y_true, y_prob)
+        brier_scores.append(brier)
+
+        # ECE
+        ece = expected_calibration_error(y_true, y_prob)
+        ece_scores.append(ece)
+
+    mean_auc = np.mean(auc_scores)
+    mean_brier = np.mean(brier_scores)
+    mean_ece = np.mean(ece_scores)
+
+    combined_score = 0.5 * (1 - mean_auc) + 0.25 * mean_brier + 0.25 * mean_ece
+    return mean_auc, mean_brier, mean_ece, combined_score
+
+
+# Lightning Model class
 class MyLitModel(pl.LightningModule):
     def __init__(self, audio_model_name, num_labels, n_layers=1, projector=True, classifier=True, dropout=0.07,
                  lr_decay=1):
@@ -116,6 +175,17 @@ class MyLitModel(pl.LightningModule):
         logits = self(audio_values, audio_attn_mask)
         loss = nn.BCEWithLogitsLoss()(logits, labels)
 
+        preds = torch.sigmoid(logits).detach().cpu().numpy()
+        true_labels = labels.detach().cpu().numpy()
+
+        try:
+            # Calculate combined score
+            _, _, _, train_combined_score = auc_brier_ece(true_labels, preds)
+        except ValueError:
+            train_combined_score = 0.0
+
+        # Log combined score
+        self.log('train_combined_score', train_combined_score, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
@@ -128,7 +198,19 @@ class MyLitModel(pl.LightningModule):
         logits = self(audio_values, audio_attn_mask)
         loss = nn.BCEWithLogitsLoss()(logits, labels)
 
+        preds = torch.sigmoid(logits).detach().cpu().numpy()
+        true_labels = labels.detach().cpu().numpy()
+
+        try:
+            # Calculate combined score
+            _, _, _, val_combined_score = auc_brier_ece(true_labels, preds)
+        except ValueError:
+            val_combined_score = 0.0
+
+        # Log combined score
+        self.log('val_combined_score', val_combined_score, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
         return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
@@ -145,7 +227,7 @@ class MyLitModel(pl.LightningModule):
         layer_decay = self.lr_decay
         weight_decay = 0.01
         llrd_params = self._get_llrd_params(lr=lr, layer_decay=layer_decay, weight_decay=weight_decay)
-        optimizer = bnb.optim.AdamW(llrd_params)  # optimizer 을 8bit 로 하여 계산 속도 향상 및 vram 사용량 감축
+        optimizer = bnb.optim.Adam8bit(llrd_params)
         return optimizer
 
     def _get_llrd_params(self, lr, layer_decay, weight_decay):
@@ -185,52 +267,95 @@ class MyLitModel(pl.LightningModule):
             module.weight.data.fill_(1.0)
 
 
-seed_everything(SEED)
+# Main script
+if __name__ == '__main__':
+    seed_everything(SEED)
 
-# 사운드 특징 추출
-audio_feature_extractor = AutoFeatureExtractor.from_pretrained(AUDIO_MODEL_NAME)
-audio_feature_extractor.return_attention_mask = True
+    # 사운드 특징 추출
+    audio_feature_extractor = AutoFeatureExtractor.from_pretrained(AUDIO_MODEL_NAME)
+    audio_feature_extractor.return_attention_mask = True
 
+    # 데이터 로드
+    train_df = pd.read_csv('./shuffled_audio_final.csv')
+    train_df['path'] = train_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
 
-test_df = pd.read_csv('./test.csv')
-test_df['path'] = test_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
+    train_df['label'] = train_df['label'].apply(lambda x: [0, 1] if x == 1 else
+    ([1, 0] if x == 2 else
+     ([1, 1] if x == 3 else
+      ([0, 1] if x == 4 else
+       ([1, 0] if x == 5 else [0, 0])))))
 
+    train_audios, valid_indices = getAudios(train_df)
+    train_df = train_df.iloc[valid_indices].reset_index(drop=True)
+    train_labels = np.array(train_df['label'].tolist())
 
-test_df['label'] = [[0, 0]] * len(test_df)
+    # K 폴드
+    skf = StratifiedKFold(n_splits=N_FOLD, shuffle=True, random_state=SEED)
+    for fold_idx, (train_indices, val_indices) in enumerate(skf.split(train_labels, train_labels.argmax(axis=1))):
+        train_fold_audios = [train_audios[train_index] for train_index in train_indices]
+        val_fold_audios = [train_audios[val_index] for val_index in val_indices]
 
+        train_fold_labels = train_labels[train_indices]
+        val_fold_labels = train_labels[val_indices]
+        train_fold_ds = MyDataset(train_fold_audios, audio_feature_extractor, train_fold_labels)
+        val_fold_ds = MyDataset(val_fold_audios, audio_feature_extractor, val_fold_labels)
+        train_fold_dl = DataLoader(train_fold_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
+        val_fold_dl = DataLoader(val_fold_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
 
-# 테스트 셋 예측
-test_audios, _ = getAudios(test_df)
+        checkpoint_acc_callback = ModelCheckpoint(
+            monitor='val_combined_score',
+            dirpath=MODEL_DIR,
+            filename=f'fold_{fold_idx}' + '_{epoch:02d}-{val_combined_score:.4f}',
+            save_top_k=1,
+            mode='min'
+        )
 
+        my_lit_model = MyLitModel(
+            audio_model_name=AUDIO_MODEL_NAME,
+            num_labels=NUM_LABELS,
+            n_layers=1, projector=True, classifier=True, dropout=0.07, lr_decay=0.8
+        )
 
-test_ds = MyDataset(test_audios, audio_feature_extractor)
-test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
+        trainer = pl.Trainer(
+            accelerator='cuda',
+            max_epochs=1,
+            precision='16-mixed',
+            val_check_interval=0.05,
+            callbacks=[checkpoint_acc_callback],
+            accumulate_grad_batches=2  # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임.
+        )
 
+        trainer.fit(my_lit_model, train_fold_dl, val_fold_dl)
 
-pretrained_models = list(map(lambda x: os.path.join(MODEL_DIR, x), os.listdir(MODEL_DIR)))
+        del my_lit_model
 
-test_preds = []
-trainer = pl.Trainer(
-    accelerator='cuda',
-    precision='16',
-)
-
-for pretrained_model_path in pretrained_models:
-    pretrained_model = MyLitModel.load_from_checkpoint(
-        pretrained_model_path,
-        audio_model_name=AUDIO_MODEL_NAME,
-        num_labels=NUM_LABELS,
-    )
-    test_pred = trainer.predict(pretrained_model, test_dl)
-    test_pred = torch.cat(test_pred).detach().cpu().numpy()
-    test_preds.append(test_pred)
-    del pretrained_model
-
-# preds 를 vstack 으로 행 변환 reshape 느낌
-test_preds = np.array(test_preds)
-mean_preds = np.mean(test_preds, axis=0)
-# 0열 값을 fake, 1열 값을 real
-submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
-submission_df['fake'] = mean_preds[:, 0]
-submission_df['real'] = mean_preds[:, 1]
-submission_df.to_csv(os.path.join(SUBMISSION_DIR, 'zesus_plz_3.csv'), index=False)
+    # 테스트 셋 예측
+    # test_audios, _ = getAudios(test_df)
+    # test_ds = MyDataset(test_audios, audio_feature_extractor)
+    # test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE, collate_fn=collate_fn)
+    # pretrained_models = list(map(lambda x: os.path.join(MODEL_DIR, x), os.listdir(MODEL_DIR)))
+    #
+    # test_preds = []
+    # trainer = pl.Trainer(
+    #     accelerator='cuda',
+    #     precision='16-mixed',
+    # )
+    #
+    # for pretrained_model_path in pretrained_models:
+    #     pretrained_model = MyLitModel.load_from_checkpoint(
+    #         pretrained_model_path,
+    #         audio_model_name=AUDIO_MODEL_NAME,
+    #         num_labels=NUM_LABELS,
+    #     )
+    #     test_pred = trainer.predict(pretrained_model, test_dl)
+    #     test_pred = torch.cat(test_pred).detach().cpu().numpy()
+    #     test_preds.append(test_pred)
+    #     del pretrained_model
+    #
+    # # preds 를 vstack 으로 행 변환 reshape 느낌
+    # test_preds = np.vstack(test_preds)
+    # # 0열 값을 fake, 1열 값을 real
+    # submission_df = pd.read_csv(os.path.join('sample_submission.csv'))
+    # submission_df['fake'] = test_preds[:, 0]
+    # submission_df['real'] = test_preds[:, 1]
+    # submission_df.to_csv(os.path.join(SUBMISSION_DIR, 'fold_5_multi_label.csv'), index=False)
