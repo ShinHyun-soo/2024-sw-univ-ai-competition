@@ -26,8 +26,8 @@ SUBMISSION_DIR = './submission'
 MODEL_DIR = './model'
 SAMPLING_RATE = 16000
 SEED = 42
-N_FOLD = 20
-BATCH_SIZE = 4
+N_FOLD = 5
+BATCH_SIZE = 2
 NUM_LABELS = 2
 AUDIO_MODEL_NAME = 'abhishtagatya/hubert-base-960h-itw-deepfake'
 
@@ -173,7 +173,7 @@ class MyLitModel(pl.LightningModule):
         labels = batch['label']
 
         logits = self(audio_values, audio_attn_mask)
-        loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
+        loss = nn.BCEWithLogitsLoss()(logits, labels)
 
         preds = torch.sigmoid(logits).detach().cpu().numpy()
         true_labels = labels.detach().cpu().numpy()
@@ -196,7 +196,7 @@ class MyLitModel(pl.LightningModule):
         labels = batch['label']
 
         logits = self(audio_values, audio_attn_mask)
-        loss = nn.MultiLabelSoftMarginLoss()(logits, labels)
+        loss = nn.BCEWithLogitsLoss()(logits, labels)
 
         preds = torch.sigmoid(logits).detach().cpu().numpy()
         true_labels = labels.detach().cpu().numpy()
@@ -276,11 +276,14 @@ if __name__ == '__main__':
     audio_feature_extractor.return_attention_mask = True
 
     # 데이터 로드
-    train_df = pd.read_csv('./train.csv')
+    train_df = pd.read_csv('./shuffled_audio_final.csv')
     train_df['path'] = train_df['path'].apply(lambda x: os.path.join(DATA_DIR, x))
 
-    # 싱글 라벨을 멀티 라벨로 변환
-    train_df['label'] = train_df['label'].apply(lambda x: [1, 0] if x == 0 else [0, 1])
+    train_df['label'] = train_df['label'].apply(lambda x: [0, 1] if x == 1 else
+    ([1, 0] if x == 2 else
+     ([1, 1] if x == 3 else
+      ([0, 1] if x == 4 else
+       ([1, 0] if x == 5 else [0, 0])))))
 
     train_audios, valid_indices = getAudios(train_df)
     train_df = train_df.iloc[valid_indices].reset_index(drop=True)
@@ -303,7 +306,7 @@ if __name__ == '__main__':
             monitor='val_combined_score',
             dirpath=MODEL_DIR,
             filename=f'fold_{fold_idx}' + '_{epoch:02d}-{val_combined_score:.4f}',
-            save_top_k=3000,
+            save_top_k=1,
             mode='min'
         )
 
@@ -315,9 +318,9 @@ if __name__ == '__main__':
 
         trainer = pl.Trainer(
             accelerator='cuda',
-            max_epochs=30,
+            max_epochs=5,
             precision='16-mixed',
-            val_check_interval=0.1,
+            val_check_interval=0.05,
             callbacks=[checkpoint_acc_callback],
             accumulate_grad_batches=2  # batch_size * accumulate_grad_batches = 가 실질적인 배치 사이즈임.
         )
